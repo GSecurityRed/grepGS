@@ -65,6 +65,4 @@ chmod +x grep_gustavin.sh
 
 ---
 
-## Licença
-
 © [GSecurity]
