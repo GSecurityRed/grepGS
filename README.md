@@ -15,7 +15,7 @@ Uma ferramenta simples de linha de comando para filtrar grandes *wordlists* com 
 
 ```bash
 # Clone o repositório
-git clone https://github.com/seu-usuario/GrepGustavin.git
+git clone https://github.com/GSecurityRed/GrepGustavin.git
 
 # Entre na pasta do projeto
 cd GrepGustavin
