@@ -3,6 +3,8 @@
 Uma ferramenta simples de linha de comando para filtrar grandes *wordlists* com múltiplos termos, destacando resultados em cores e gerando arquivos de saída únicos.
 <br>
 
+
+---
 ![image](https://github.com/user-attachments/assets/89a0b37e-6a5b-4e3c-aadc-c5f2ecb867e0)
 
 
