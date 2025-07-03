@@ -1,6 +1,11 @@
 # GrepGustavin
 
 Uma ferramenta simples de linha de comando para filtrar grandes *wordlists* com múltiplos termos, destacando resultados em cores e gerando arquivos de saída únicos.
+<br>
+
+![image](https://github.com/user-attachments/assets/89a0b37e-6a5b-4e3c-aadc-c5f2ecb867e0)
+
+
 
 ---
 
@@ -15,7 +20,7 @@ Uma ferramenta simples de linha de comando para filtrar grandes *wordlists* com 
 
 ```bash
 # Clone o repositório
-git clone https://github.com/GSecurityRed/GrepGustavin.git
+git clone https://github.com/GSecurityRed/Grep-Gustavin
 
 # Entre na pasta do projeto
 cd GrepGustavin
