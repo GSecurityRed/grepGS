@@ -1,11 +1,13 @@
 # GrepGustavin
 
-Uma ferramenta simples de linha de comando para filtrar grandes *wordlists* com múltiplos termos, destacando resultados em cores e gerando arquivos de saída únicos.
+Ferramenta de grep “turbinada” para caça de credenciais/strings em dumps de texto — com deduplicação por senha, exportação em TXT/CSV/JSON e resumo colorido ao final.
 <br>
 
 
 ---
-![image](https://github.com/user-attachments/assets/89a0b37e-6a5b-4e3c-aadc-c5f2ecb867e0)
+<img width="729" height="388" alt="image" src="https://github.com/user-attachments/assets/e3fb985a-ea60-4b12-9a08-292db5f73568" />
+
+
 
 
 
@@ -13,8 +15,7 @@ Uma ferramenta simples de linha de comando para filtrar grandes *wordlists* com 
 
 ## Pré-requisitos
 
-- Bash (versão ≥ 4)
-- `grep` (GNU grep, com suporte a --color)
+- Bash 4+, grep, awk, sed (pré-instalados na maioria dos Linux).
 
 ---
 
@@ -22,13 +23,13 @@ Uma ferramenta simples de linha de comando para filtrar grandes *wordlists* com 
 
 ```bash
 # Clone o repositório
-git clone https://github.com/GSecurityRed/Grep-Gustavin
+git clone https://github.com/GSecurityRed/grepGS.sh
 
 # Entre na pasta do projeto
-cd GrepGustavin
+cd grepGS.sh
 
 # Dê permissão de execução
-chmod +x grep_gustavin.sh
+chmod +x grepGS.sh
 ```
 
 ---
@@ -36,32 +37,47 @@ chmod +x grep_gustavin.sh
 ## Uso
 
 ```bash
-# Modo padrão (só gera arquivo resultado_<termos>.txt)
-./grep_gustavin.sh /caminho/para/wordlist.txt
+# 1) Termo direto na linha de comando
+./grepGS.sh nome dumps.txt
 
-# Modo verbose (banner + output colorido)
-./grep_gustavin.sh -v /caminho/para/wordlist.txt
+# 2) Vários termos (AND)
+./grepGS.sh nome nome2 dumps.txt
 
-# Modo silent (rápido, só resumo + arquivo colorido)
-./grep_gustavin.sh -s /caminho/para/wordlist.txt
+# 3) Deduplicar por senha (último campo após ':')
+./grepGS.sh --unique nome dumps.txt
+
+# 4) Exportar para CSV
+./grepGS.sh nome dumps.txt --out resultados.csv
+
+# 5) Exportar para JSON (NDJSON)
+./grepGS.sh nome dumps.txt --out resultados.json
+
 ```
 
-## Flags
+## Opções
 
-| Flag | Descrição                                              |
-|------|--------------------------------------------------------|
-| `-v` | **Verbose**: Banner + resultados numerados + cores.    |
-| `-s` | **Silent**: Busca rápida + gravação colorida + resumo. |
+```bash
+Uso: ./grepGS.sh [opções] arquivo-alvo [termo ...]
 
----
+Opções de busca:
+  --invert-match           Inverte a correspondência (grep -v)
+  --stdin                  Lê termos do STDIN (um por linha)
+  --terms-file ARQ         Lê termos de um arquivo (pode repetir)
+  --terms-files L1,L2,...  Vários arquivos de termos separados por vírgula
 
-## Como funciona
+Unicidade:
+  --unique                 Remove duplicatas por SENHA (último campo após ':'),
+                           normaliza CRLF e preserva a ordem
 
-1. Solicita caminho da *wordlist* e termos (separados por vírgula).
-2. Gera expressão regex interna (`term1|term2|...`).
-3. Encontra correspondências via `grep -E`.
-4. Destaca termos em amarelo e pinta linha inteira em magenta (Terminal).
-5. Grava arquivo de saída com cores ANSI.
+Exportação:
+  --out CAMINHO            Salva o resultado no arquivo informado
+  --format FMT             Força formato: txt | csv | json
+                           (se omitido, infere pela extensão de --out:
+                            .txt -> txt, .csv -> csv, .json/.ndjson -> json)
+
+Geral:
+  -h, --help               Mostra a ajuda
+```
 
 ---
 
