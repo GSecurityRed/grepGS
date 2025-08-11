@@ -1,5 +1,5 @@
 #!/bin/bash
-# GrepGS v3.3
+# GrepGS v3.5
 
 set -o pipefail
 shopt -s nullglob
@@ -28,7 +28,7 @@ show_banner() {
     else
         echo -e "${MAGENTA}===== GrepGS =====${RESET}" >&2
     fi
-    echo -e "${CYAN}v3.3${RESET}\n" >&2
+    echo -e "${CYAN}v3.5${RESET}\n" >&2
     echo -e "${GRAY}Use with caution. You are responsible for your actions." >&2
     echo -e "Developers assume no liability and are not responsible for any misuse or damage.${RESET}\n" >&2
 }
@@ -38,33 +38,36 @@ show_banner() {
 # =====================================
 usage() {
     show_banner
-    cat >&2 <<EOF
-Uso: $0 [opções] arquivo-alvo [termo ...]
+    cat >&2 <<'EOF'
+Uso: ./grepGS.sh [opções] arquivo-alvo [termo ...]
 
 Opções de busca:
-  --invert-match           Inverte a correspondência (grep -v)
-  --stdin                  Lê termos do STDIN (um por linha)
-  --terms-file ARQ         Lê termos de um arquivo (pode repetir)
-  --terms-files L1,L2,...  Vários arquivos de termos separados por vírgula
+  --or                    Casa se QUALQUER termo aparecer (padrão)
+  --and                   Casa se TODOS os termos aparecerem (AND)
+  --invert-match          Inverte a correspondência (grep -v)
+  --stdin                 Lê termos do STDIN (um por linha ou separados por vírgula)
+  --terms-file ARQ        Lê termos de arquivo (pode repetir). Suporta linhas com 1 termo por linha
+                          e/ou múltiplos termos separados por vírgula (csv-like).
+  --terms-files L1,L2,... Vários arquivos de termos separados por vírgula
 
 Unicidade:
-  --unique                 Remove duplicatas por SENHA (último campo após ':'),
-                           normaliza CRLF e preserva a ordem
+  --unique                Remove duplicatas por SENHA (último campo após ':'),
+                          normaliza CRLF e preserva a ordem
 
 Exportação:
-  --out CAMINHO            Salva o resultado no arquivo informado
-  --format FMT             Força formato: txt | csv | json
-                           (se omitido, infere pela extensão de --out:
-                            .txt -> txt, .csv -> csv, .json/.ndjson -> json)
+  --out CAMINHO           Salva o resultado no arquivo informado
+  --format FMT            Força formato: txt | csv | json
+                          (se omitido, infere pela extensão de --out:
+                           .txt -> txt, .csv -> csv, .json/.ndjson -> json)
 
 Geral:
-  -h, --help               Mostra esta ajuda
+  -h, --help              Mostra esta ajuda
 
 Exemplos:
-  $0 termo arquivo.txt
-  $0 --invert-match admin arquivo.txt
-  cat termos.txt | $0 --stdin arquivo.txt --unique --out resultado.csv
-  $0 --terms-file a.txt --terms-file b.txt alvo.txt --out saida.json
+  ./grepGS.sh itamaraty mre dump.txt            # OR (padrão)
+  ./grepGS.sh --and itamaraty mre dump.txt      # AND
+  ./grepGS.sh --terms-file termos.txt dump.txt  # termos por linha e/ou vírgula
+  echo "ita,angola" | ./grepGS.sh --stdin dump.txt
 EOF
     exit 1
 }
@@ -72,9 +75,10 @@ EOF
 # =====================================
 # Variáveis
 # =====================================
+MATCH_MODE="OR"   # OR (padrão) | AND
 INVERT_MATCH=false
 STDIN_TERMS=false
-TERMS_FILES=()   # múltiplas wordlists
+TERMS_FILES=()
 UNIQUE=false
 TARGET_FILE=""
 TERMS=()
@@ -86,8 +90,10 @@ OUT_FMT=""       # txt|csv|json
 # =====================================
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --invert-match) INVERT_MATCH=true; shift ;;
-        --stdin)        STDIN_TERMS=true; shift ;;
+        --or)            MATCH_MODE="OR"; shift ;;
+        --and)           MATCH_MODE="AND"; shift ;;
+        --invert-match)  INVERT_MATCH=true; shift ;;
+        --stdin)         STDIN_TERMS=true; shift ;;
         --terms-file)
             [[ -z "$2" ]] && { echo "Erro: --terms-file requer caminho." >&2; usage; }
             TERMS_FILES+=("$2"); shift 2 ;;
@@ -95,7 +101,7 @@ while [[ $# -gt 0 ]]; do
             [[ -z "$2" ]] && { echo "Erro: --terms-files requer lista separada por vírgulas." >&2; usage; }
             IFS=',' read -r -a _tmp <<< "$2"
             TERMS_FILES+=("${_tmp[@]}"); shift 2 ;;
-        --unique)       UNIQUE=true; shift ;;
+        --unique)        UNIQUE=true; shift ;;
         --out)
             [[ -z "$2" ]] && { echo "Erro: --out requer caminho de arquivo." >&2; usage; }
             OUT_PATH="$2"; shift 2 ;;
@@ -124,7 +130,6 @@ if [[ -z "$TARGET_FILE" ]]; then
     usage
 fi
 
-# Infere formato pelo --out se necessário
 infer_fmt_from_path() {
     local p="$1"
     case "${p##*.}" in
@@ -144,23 +149,37 @@ fi
 show_banner
 
 # =====================================
+# Helpers
+# =====================================
+trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
+
+add_terms_from_line() {
+    local line="${1%$'\r'}"           # remove CR se houver
+    # divide por vírgula, mantendo também a possibilidade de apenas 1 termo por linha
+    IFS=',' read -r -a _parts <<< "$line"
+    for _t in "${_parts[@]}"; do
+        _t="$(trim "$_t")"
+        [[ -n "$_t" ]] && TERMS+=("$_t")
+    done
+}
+
+# =====================================
 # Coleta de termos
 # =====================================
 if $STDIN_TERMS; then
-    while IFS= read -r term; do
-        [[ -n "$term" ]] && TERMS+=("$term")
+    while IFS= read -r line; do
+        add_terms_from_line "$line"
     done
 fi
 
-# Carrega múltiplas wordlists
 TERMS_FILES_READ=0
 for tf in "${TERMS_FILES[@]}"; do
     if [[ ! -f "$tf" ]]; then
         echo "Aviso: wordlist não encontrada: $tf" >&2
         continue
     fi
-    while IFS= read -r term; do
-        [[ -n "$term" ]] && TERMS+=("$term")
+    while IFS= read -r line; do
+        add_terms_from_line "$line"
     done < "$tf"
     ((TERMS_FILES_READ++))
 done
@@ -170,25 +189,31 @@ if [[ ${#TERMS[@]} -eq 0 ]]; then
     usage
 fi
 
-# Remove termos duplicados (exatamente iguais)
-# e linhas em branco, preservando ordem
-TERMS=($(printf "%s\n" "${TERMS[@]}" | awk 'NF && !seen[$0]++'))
+# Remove termos duplicados e vazios, preservando ordem
+mapfile -t TERMS < <(printf "%s\n" "${TERMS[@]}" | awk 'NF && !seen[$0]++')
 
 # =====================================
-# Execução do grep (AND entre termos)
+# Execução (OR ou AND)
 # =====================================
 FLAGS=()
 $INVERT_MATCH && FLAGS+=("-v")
 GREPOPTS=(--color=never)
 
 RESULT=""
-for term in "${TERMS[@]}"; do
-    if [[ -z "$RESULT" ]]; then
-        RESULT=$(grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -- "$term" "$TARGET_FILE" || true)
-    else
-        RESULT=$(printf "%s\n" "$RESULT" | grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -- "$term" || true)
-    fi
-done
+
+if [[ "$MATCH_MODE" == "OR" ]]; then
+    # OR: qualquer termo. Usa -f com uma "termfile" via process substitution.
+    RESULT=$(grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -f <(printf "%s\n" "${TERMS[@]}") -- "$TARGET_FILE" || true)
+else
+    # AND: todos os termos. Encadeia greps.
+    for term in "${TERMS[@]}"; do
+        if [[ -z "$RESULT" ]]; then
+            RESULT=$(grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -- "$term" "$TARGET_FILE" || true)
+        else
+            RESULT=$(printf "%s\n" "$RESULT" | grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -- "$term" || true)
+        fi
+    done
+fi
 
 COUNT_BEFORE=$(printf "%s\n" "$RESULT" | sed '/^$/d' | wc -l | tr -d ' ')
 
@@ -215,22 +240,18 @@ COUNT_AFTER=$(printf "%s\n" "$RESULT" | sed '/^$/d' | wc -l | tr -d ' ')
 write_txt()  { printf "%s\n" "$RESULT"; }
 
 write_csv() {
-    # Divide por ":" em colunas c1..cN e gera cabeçalho com N máximo
     awk -F':' '
         BEGIN{ OFS="," }
         {
-            # guarda campos por linha
             n=split($0,a,":")
             max=(n>max?n:max)
             for(i=1;i<=n;i++){ row[NR,i]=a[i] }
             rows=NR
         }
         END{
-            # header
             for(i=1;i<=max;i++){
                 printf "c%d", i; if(i<max) printf OFS; else printf "\n"
             }
-            # linhas
             for(r=1;r<=rows;r++){
                 for(i=1;i<=max;i++){
                     val=row[r,i]
@@ -244,7 +265,6 @@ write_csv() {
 }
 
 write_json() {
-    # NDJSON: {"c1":"...","c2":"...","raw":"..."}
     awk -F':' '
         function esc(s){ gsub(/\\/,"\\\\",s); gsub(/"/,"\\\"",s); gsub(/\r/,"",s); return s }
         {
@@ -258,7 +278,6 @@ write_json() {
         }' <<< "$RESULT"
 }
 
-# Decide onde escrever
 if [[ -n "$OUT_PATH" ]]; then
     case "$OUT_FMT" in
         txt)  write_txt  > "$OUT_PATH" ;;
@@ -277,6 +296,7 @@ write_txt
 # Resumo (STDERR, colorido)
 # =====================================
 echo -e "${YELLOW}\n──────── Resumo ────────${RESET}" >&2
+echo -e "${GREEN}Modo de match:${RESET} ${MATCH_MODE}" >&2
 echo -e "${GREEN}Termos únicos:${RESET} ${#TERMS[@]}" >&2
 echo -e "${GREEN}Wordlists lidas:${RESET} ${TERMS_FILES_READ}" >&2
 echo -e "${GREEN}Linhas casadas:${RESET} ${COUNT_BEFORE}" >&2
