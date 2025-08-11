@@ -1,6 +1,6 @@
 # GrepGustavin
 
-Ferramenta de grep “turbinada” para caça de credenciais/strings em dumps de texto — com deduplicação por senha, exportação em TXT/CSV/JSON e resumo colorido ao final.
+Ferramenta de grep para caça de credenciais/strings em dumps de texto — com deduplicação por senha, exportação em TXT/CSV/JSON e resumo ao final.
 <br>
 
 
