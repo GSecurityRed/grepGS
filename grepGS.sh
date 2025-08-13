@@ -215,6 +215,12 @@ else
     done
 fi
 
+# =====================================
+# Filtro: excluir linhas que começam com 'ec-' ou possuem '//ec-'
+# (considera espaços/tabs à esquerda; cobre http(s)://ec-)
+# =====================================
+RESULT=$(printf "%s\n" "$RESULT" | awk '!/^[[:space:]]*ec-/ && !/\/\/ec-/')
+
 COUNT_BEFORE=$(printf "%s\n" "$RESULT" | sed '/^$/d' | wc -l | tr -d ' ')
 
 # =====================================
