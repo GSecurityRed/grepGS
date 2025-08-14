@@ -197,7 +197,9 @@ mapfile -t TERMS < <(printf "%s\n" "${TERMS[@]}" | awk 'NF && !seen[$0]++')
 # =====================================
 FLAGS=()
 $INVERT_MATCH && FLAGS+=("-v")
-GREPOPTS=(--color=never)
+
+# >>> Correção: tratar arquivos "binários" como texto <<<
+GREPOPTS=(--color=never --binary-files=text)
 
 RESULT=""
 
