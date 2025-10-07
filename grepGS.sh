@@ -1,5 +1,5 @@
 #!/bin/bash
-# GrepGS v3.5
+# GrepGS v3.6 - Suporte a múltiplos arquivos-alvo
 
 set -o pipefail
 shopt -s nullglob
@@ -28,7 +28,7 @@ show_banner() {
     else
         echo -e "${MAGENTA}===== GrepGS =====${RESET}" >&2
     fi
-    echo -e "${CYAN}v3.5${RESET}\n" >&2
+    echo -e "${CYAN}v3.6${RESET}\n" >&2
     echo -e "${GRAY}Use with caution. You are responsible for your actions." >&2
     echo -e "Developers assume no liability and are not responsible for any misuse or damage.${RESET}\n" >&2
 }
@@ -39,34 +39,34 @@ show_banner() {
 usage() {
     show_banner
     cat >&2 <<'EOF'
-Uso: ./grepGS.sh [opções] arquivo-alvo [termo ...]
+Uso: ./grepGS.sh [opções] arquivo-alvo1 [arquivo-alvo2 ...] [termo ...]
 
 Opções de busca:
-  --or                    Casa se QUALQUER termo aparecer (padrão)
-  --and                   Casa se TODOS os termos aparecerem (AND)
-  --invert-match          Inverte a correspondência (grep -v)
-  --stdin                 Lê termos do STDIN (um por linha ou separados por vírgula)
-  --terms-file ARQ        Lê termos de arquivo (pode repetir). Suporta linhas com 1 termo por linha
-                          e/ou múltiplos termos separados por vírgula (csv-like).
+  --or                  Casa se QUALQUER termo aparecer (padrão)
+  --and                 Casa se TODOS os termos aparecerem (AND)
+  --invert-match        Inverte a correspondência (grep -v)
+  --stdin               Lê termos do STDIN (um por linha ou separados por vírgula)
+  --terms-file ARQ      Lê termos de arquivo (pode repetir). Suporta linhas com 1 termo por linha
+                        e/ou múltiplos termos separados por vírgula (csv-like).
   --terms-files L1,L2,... Vários arquivos de termos separados por vírgula
 
 Unicidade:
-  --unique                Remove duplicatas por SENHA (último campo após ':'),
-                          normaliza CRLF e preserva a ordem
+  --unique              Remove duplicatas por SENHA (último campo após ':'),
+                        normaliza CRLF e preserva a ordem
 
 Exportação:
-  --out CAMINHO           Salva o resultado no arquivo informado
-  --format FMT            Força formato: txt | csv | json
-                          (se omitido, infere pela extensão de --out:
-                           .txt -> txt, .csv -> csv, .json/.ndjson -> json)
+  --out CAMINHO         Salva o resultado no arquivo informado
+  --format FMT          Força formato: txt | csv | json
+                        (se omitido, infere pela extensão de --out:
+                         .txt -> txt, .csv -> csv, .json/.ndjson -> json)
 
 Geral:
-  -h, --help              Mostra esta ajuda
+  -h, --help            Mostra esta ajuda
 
 Exemplos:
-  ./grepGS.sh itamaraty mre dump.txt            # OR (padrão)
-  ./grepGS.sh --and itamaraty mre dump.txt      # AND
-  ./grepGS.sh --terms-file termos.txt dump.txt  # termos por linha e/ou vírgula
+  ./grepGS.sh dump1.txt dump2.txt itamaraty mre    # OR (padrão) em múltiplos arquivos
+  ./grepGS.sh --and *.log itamaraty mre            # AND em todos os arquivos .log
+  ./grepGS.sh --terms-file termos.txt dump.txt   # termos por linha e/ou vírgula
   echo "ita,angola" | ./grepGS.sh --stdin dump.txt
 EOF
     exit 1
@@ -80,20 +80,20 @@ INVERT_MATCH=false
 STDIN_TERMS=false
 TERMS_FILES=()
 UNIQUE=false
-TARGET_FILE=""
+TARGET_FILES=() # ALTERADO: Agora é um array para múltiplos arquivos
 TERMS=()
 OUT_PATH=""
-OUT_FMT=""       # txt|csv|json
+OUT_FMT=""      # txt|csv|json
 
 # =====================================
 # Parse argumentos
 # =====================================
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --or)            MATCH_MODE="OR"; shift ;;
-        --and)           MATCH_MODE="AND"; shift ;;
-        --invert-match)  INVERT_MATCH=true; shift ;;
-        --stdin)         STDIN_TERMS=true; shift ;;
+        --or)           MATCH_MODE="OR"; shift ;;
+        --and)          MATCH_MODE="AND"; shift ;;
+        --invert-match) INVERT_MATCH=true; shift ;;
+        --stdin)        STDIN_TERMS=true; shift ;;
         --terms-file)
             [[ -z "$2" ]] && { echo "Erro: --terms-file requer caminho." >&2; usage; }
             TERMS_FILES+=("$2"); shift 2 ;;
@@ -101,7 +101,7 @@ while [[ $# -gt 0 ]]; do
             [[ -z "$2" ]] && { echo "Erro: --terms-files requer lista separada por vírgulas." >&2; usage; }
             IFS=',' read -r -a _tmp <<< "$2"
             TERMS_FILES+=("${_tmp[@]}"); shift 2 ;;
-        --unique)        UNIQUE=true; shift ;;
+        --unique)       UNIQUE=true; shift ;;
         --out)
             [[ -z "$2" ]] && { echo "Erro: --out requer caminho de arquivo." >&2; usage; }
             OUT_PATH="$2"; shift 2 ;;
@@ -113,8 +113,9 @@ while [[ $# -gt 0 ]]; do
         -*)
             echo "Opção desconhecida: $1" >&2; usage ;;
         *)
-            if [[ -z "$TARGET_FILE" && -f "$1" ]]; then
-                TARGET_FILE="$1"
+            # ALTERADO: Se for um arquivo, adiciona à lista de alvos. Senão, é um termo.
+            if [[ -f "$1" ]]; then
+                TARGET_FILES+=("$1")
             else
                 TERMS+=("$1")
             fi
@@ -125,8 +126,9 @@ done
 # =====================================
 # Validações
 # =====================================
-if [[ -z "$TARGET_FILE" ]]; then
-    echo "Erro: arquivo-alvo não especificado ou não existe." >&2
+# ALTERADO: Verifica se a lista de arquivos-alvo está vazia
+if [[ ${#TARGET_FILES[@]} -eq 0 ]]; then
+    echo "Erro: Nenhum arquivo-alvo especificado ou encontrado." >&2
     usage
 fi
 
@@ -154,8 +156,7 @@ show_banner
 trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
 
 add_terms_from_line() {
-    local line="${1%$'\r'}"           # remove CR se houver
-    # divide por vírgula, mantendo também a possibilidade de apenas 1 termo por linha
+    local line="${1%$'\r'}"
     IFS=',' read -r -a _parts <<< "$line"
     for _t in "${_parts[@]}"; do
         _t="$(trim "$_t")"
@@ -189,7 +190,6 @@ if [[ ${#TERMS[@]} -eq 0 ]]; then
     usage
 fi
 
-# Remove termos duplicados e vazios, preservando ordem
 mapfile -t TERMS < <(printf "%s\n" "${TERMS[@]}" | awk 'NF && !seen[$0]++')
 
 # =====================================
@@ -197,32 +197,31 @@ mapfile -t TERMS < <(printf "%s\n" "${TERMS[@]}" | awk 'NF && !seen[$0]++')
 # =====================================
 FLAGS=()
 $INVERT_MATCH && FLAGS+=("-v")
-
-# >>> Correção: tratar arquivos "binários" como texto <<<
 GREPOPTS=(--color=never --binary-files=text)
-
 RESULT=""
 
 if [[ "$MATCH_MODE" == "OR" ]]; then
-    # OR: qualquer termo. Usa -f com uma "termfile" via process substitution.
-    RESULT=$(grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -f <(printf "%s\n" "${TERMS[@]}") -- "$TARGET_FILE" || true)
+    # OR: qualquer termo.
+    # ALTERADO: Passa todos os arquivos-alvo para o grep
+    RESULT=$(grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -f <(printf "%s\n" "${TERMS[@]}") -- "${TARGET_FILES[@]}" || true)
 else
     # AND: todos os termos. Encadeia greps.
-    for term in "${TERMS[@]}"; do
-        if [[ -z "$RESULT" ]]; then
-            RESULT=$(grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -- "$term" "$TARGET_FILE" || true)
-        else
+    # ALTERADO: O primeiro grep da cadeia usa todos os arquivos-alvo
+    if [[ ${#TERMS[@]} -gt 0 ]]; then
+        first_term="${TERMS[0]}"
+        RESULT=$(grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -- "$first_term" "${TARGET_FILES[@]}" || true)
+
+        for ((i=1; i<${#TERMS[@]}; i++)); do
+            term="${TERMS[$i]}"
             RESULT=$(printf "%s\n" "$RESULT" | grep "${FLAGS[@]}" -F "${GREPOPTS[@]}" -- "$term" || true)
-        fi
-    done
+        done
+    fi
 fi
 
 # =====================================
 # Filtro: excluir linhas que começam com 'ec-' ou possuem '//ec-'
-# (considera espaços/tabs à esquerda; cobre http(s)://ec-)
 # =====================================
 RESULT=$(printf "%s\n" "$RESULT" | awk '!/^[[:space:]]*ec-/ && !/\/\/ec-/')
-
 COUNT_BEFORE=$(printf "%s\n" "$RESULT" | sed '/^$/d' | wc -l | tr -d ' ')
 
 # =====================================
@@ -239,14 +238,12 @@ if $UNIQUE; then
             }
         ')
 fi
-
 COUNT_AFTER=$(printf "%s\n" "$RESULT" | sed '/^$/d' | wc -l | tr -d ' ')
 
 # =====================================
 # Exportação
 # =====================================
 write_txt()  { printf "%s\n" "$RESULT"; }
-
 write_csv() {
     awk -F':' '
         BEGIN{ OFS="," }
@@ -271,7 +268,6 @@ write_csv() {
             }
         }' <<< "$RESULT"
 }
-
 write_json() {
     awk -F':' '
         function esc(s){ gsub(/\\/,"\\\\",s); gsub(/"/,"\\\"",s); gsub(/\r/,"",s); return s }
@@ -304,6 +300,7 @@ write_txt
 # Resumo (STDERR, colorido)
 # =====================================
 echo -e "${YELLOW}\n──────── Resumo ────────${RESET}" >&2
+echo -e "${GREEN}Arquivos-alvo:${RESET} ${#TARGET_FILES[@]}" >&2 # ADICIONADO
 echo -e "${GREEN}Modo de match:${RESET} ${MATCH_MODE}" >&2
 echo -e "${GREEN}Termos únicos:${RESET} ${#TERMS[@]}" >&2
 echo -e "${GREEN}Wordlists lidas:${RESET} ${TERMS_FILES_READ}" >&2
